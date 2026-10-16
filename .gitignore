@@ -6,3 +6,6 @@ node_modules
 next-env.d.ts
 *.db
 *.db-journal
+
+# Local Netlify folder
+.netlify
