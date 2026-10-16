@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
       ];
     }
     if (status && (STATUSES as readonly string[]).includes(status)) {
-      where.status = status;
+      where.status = status as unknown as Prisma.LeadWhereInput["status"];
     }
     if (event) where.event = event;
 
