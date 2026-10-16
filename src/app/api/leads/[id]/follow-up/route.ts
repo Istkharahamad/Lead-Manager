@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "../../../../../../db";
+import { leads } from "../../../../../../db/schema";
 import { draftFollowUp } from "@/lib/ai";
 import { errorResponse, HttpError } from "@/lib/http";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const lead = await prisma.lead.findUnique({ where: { id: params.id } });
+    const [lead] = await db.select().from(leads).where(eq(leads.id, params.id));
     if (!lead) throw new HttpError(404, "Lead not found");
     const followUpDraft = await draftFollowUp(lead);
-    const updated = await prisma.lead.update({ where: { id: lead.id }, data: { followUpDraft } });
+    // Persist so we don't pay for the same call twice.
+    const [updated] = await db.update(leads).set({ followUpDraft }).where(eq(leads.id, lead.id)).returning();
     return NextResponse.json(updated);
   } catch (err) {
     return errorResponse(err);

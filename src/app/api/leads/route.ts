@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { and, asc, desc, eq, ilike, or, type SQL } from "drizzle-orm";
+import { db } from "../../../../db";
+import { leads } from "../../../../db/schema";
 import { leadSchema, STATUSES } from "@/lib/validation";
 import { errorResponse } from "@/lib/http";
 
@@ -14,26 +15,29 @@ export async function GET(req: NextRequest) {
     const status = sp.get("status");
     const event = sp.get("event")?.trim();
 
-    const where: Prisma.LeadWhereInput = {};
+    const filters: (SQL | undefined)[] = [];
     if (search) {
-      where.OR = [
-        { name: { contains: search } },
-        { company: { contains: search } },
-        { email: { contains: search } },
-        { notes: { contains: search } },
-      ];
+      const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+      filters.push(
+        or(
+          ilike(leads.name, pattern),
+          ilike(leads.company, pattern),
+          ilike(leads.email, pattern),
+          ilike(leads.notes, pattern)
+        )
+      );
     }
     if (status && (STATUSES as readonly string[]).includes(status)) {
-      where.status = status as unknown as Prisma.LeadWhereInput["status"];
+      filters.push(eq(leads.status, status));
     }
-    if (event) where.event = event;
+    if (event) filters.push(eq(leads.event, event));
 
-    const [leads, events] = await Promise.all([
-      prisma.lead.findMany({ where, orderBy: { updatedAt: "desc" } }),
-      prisma.lead.findMany({ select: { event: true }, distinct: ["event"], orderBy: { event: "asc" } }),
+    const [rows, events] = await Promise.all([
+      db.select().from(leads).where(and(...filters)).orderBy(desc(leads.updatedAt)),
+      db.selectDistinct({ event: leads.event }).from(leads).orderBy(asc(leads.event)),
     ]);
 
-    return NextResponse.json({ leads, events: events.map((e) => e.event) });
+    return NextResponse.json({ leads: rows, events: events.map((e) => e.event) });
   } catch (err) {
     return errorResponse(err);
   }
@@ -43,7 +47,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const data = leadSchema.parse(await req.json());
-    const lead = await prisma.lead.create({ data });
+    const [lead] = await db.insert(leads).values(data).returning();
     return NextResponse.json(lead, { status: 201 });
   } catch (err) {
     return errorResponse(err);
